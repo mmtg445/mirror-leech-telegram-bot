@@ -16,6 +16,7 @@ from pyrogram.handlers import MessageHandler
 from signal import signal, SIGINT
 from sys import executable
 from time import time
+from flask import Flask
 
 from bot import (
     bot,
@@ -62,6 +63,12 @@ from .modules import (
     force_start,
 )
 
+# Flask server setup for health check
+app = Flask(__name__)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return "Bot is running smoothly", 200
 
 @new_task
 async def stats(_, message):
@@ -95,171 +102,11 @@ async def stats(_, message):
     )
     await send_message(message, stats)
 
+# Flask app run with specified port
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
 
-@new_task
-async def start(client, message):
-    buttons = ButtonMaker()
-    buttons.url_button(
-        "Repo", "https://www.github.com/anasty17/mirror-leech-telegram-bot"
-    )
-    buttons.url_button("Code Owner", "https://t.me/anas_tayyar")
-    reply_markup = buttons.build_menu(2)
-    if await CustomFilters.authorized(client, message):
-        start_string = f"""
-This bot can mirror all your links|files|torrents to Google Drive or any rclone cloud or to telegram.
-Type /{BotCommands.HelpCommand} to get a list of available commands
-"""
-        await send_message(message, start_string, reply_markup)
-    else:
-        await send_message(
-            message,
-            "You Are not authorized user! Deploy your own mirror-leech bot",
-            reply_markup,
-        )
-
-
-@new_task
-async def restart(_, message):
-    intervals["stopAll"] = True
-    restart_message = await send_message(message, "Restarting...")
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-    if qb := intervals["qb"]:
-        qb.cancel()
-    if jd := intervals["jd"]:
-        jd.cancel()
-    if nzb := intervals["nzb"]:
-        nzb.cancel()
-    if st := intervals["status"]:
-        for intvl in list(st.values()):
-            intvl.cancel()
-    await sync_to_async(clean_all)
-    if sabnzbd_client.LOGGED_IN:
-        await gather(
-            sabnzbd_client.pause_all(),
-            sabnzbd_client.purge_all(True),
-            sabnzbd_client.delete_history("all", delete_files=True),
-        )
-    proc1 = await create_subprocess_exec(
-        "pkill",
-        "-9",
-        "-f",
-        "gunicorn|aria2c|qbittorrent-nox|ffmpeg|rclone|java|sabnzbdplus",
-    )
-    proc2 = await create_subprocess_exec("python3", "update.py")
-    await gather(proc1.wait(), proc2.wait())
-    async with aiopen(".restartmsg", "w") as f:
-        await f.write(f"{restart_message.chat.id}\n{restart_message.id}\n")
-    osexecl(executable, executable, "-m", "bot")
-
-
-@new_task
-async def ping(_, message):
-    start_time = int(round(time() * 1000))
-    reply = await send_message(message, "Starting Ping")
-    end_time = int(round(time() * 1000))
-    await edit_message(reply, f"{end_time - start_time} ms")
-
-
-@new_task
-async def log(_, message):
-    await send_file(message, "log.txt")
-
-
-help_string = f"""
-NOTE: Try each command without any argument to see more detalis.
-/{BotCommands.MirrorCommand[0]} or /{BotCommands.MirrorCommand[1]}: Start mirroring to cloud.
-/{BotCommands.QbMirrorCommand[0]} or /{BotCommands.QbMirrorCommand[1]}: Start Mirroring to cloud using qBittorrent.
-/{BotCommands.JdMirrorCommand[0]} or /{BotCommands.JdMirrorCommand[1]}: Start Mirroring to cloud using JDownloader.
-/{BotCommands.NzbMirrorCommand[0]} or /{BotCommands.NzbMirrorCommand[1]}: Start Mirroring to cloud using Sabnzbd.
-/{BotCommands.YtdlCommand[0]} or /{BotCommands.YtdlCommand[1]}: Mirror yt-dlp supported link.
-/{BotCommands.LeechCommand[0]} or /{BotCommands.LeechCommand[1]}: Start leeching to Telegram.
-/{BotCommands.QbLeechCommand[0]} or /{BotCommands.QbLeechCommand[1]}: Start leeching using qBittorrent.
-/{BotCommands.JdLeechCommand[0]} or /{BotCommands.JdLeechCommand[1]}: Start leeching using JDownloader.
-/{BotCommands.NzbLeechCommand[0]} or /{BotCommands.NzbLeechCommand[1]}: Start leeching using Sabnzbd.
-/{BotCommands.YtdlLeechCommand[0]} or /{BotCommands.YtdlLeechCommand[1]}: Leech yt-dlp supported link.
-/{BotCommands.CloneCommand} [drive_url]: Copy file/folder to Google Drive.
-/{BotCommands.CountCommand} [drive_url]: Count file/folder of Google Drive.
-/{BotCommands.DeleteCommand} [drive_url]: Delete file/folder from Google Drive (Only Owner & Sudo).
-/{BotCommands.UserSetCommand[0]} or /{BotCommands.UserSetCommand[1]} [query]: Users settings.
-/{BotCommands.BotSetCommand[0]} or /{BotCommands.BotSetCommand[1]} [query]: Bot settings.
-/{BotCommands.SelectCommand}: Select files from torrents or nzb by gid or reply.
-/{BotCommands.CancelTaskCommand[0]} or /{BotCommands.CancelTaskCommand[1]} [gid]: Cancel task by gid or reply.
-/{BotCommands.ForceStartCommand[0]} or /{BotCommands.ForceStartCommand[1]} [gid]: Force start task by gid or reply.
-/{BotCommands.CancelAllCommand} [query]: Cancel all [status] tasks.
-/{BotCommands.ListCommand} [query]: Search in Google Drive(s).
-/{BotCommands.SearchCommand} [query]: Search for torrents with API.
-/{BotCommands.StatusCommand}: Shows a status of all the downloads.
-/{BotCommands.StatsCommand}: Show stats of the machine where the bot is hosted in.
-/{BotCommands.PingCommand}: Check how long it takes to Ping the Bot (Only Owner & Sudo).
-/{BotCommands.AuthorizeCommand}: Authorize a chat or a user to use the bot (Only Owner & Sudo).
-/{BotCommands.UnAuthorizeCommand}: Unauthorize a chat or a user to use the bot (Only Owner & Sudo).
-/{BotCommands.UsersCommand}: show users settings (Only Owner & Sudo).
-/{BotCommands.AddSudoCommand}: Add sudo user (Only Owner).
-/{BotCommands.RmSudoCommand}: Remove sudo users (Only Owner).
-/{BotCommands.RestartCommand}: Restart and update the bot (Only Owner & Sudo).
-/{BotCommands.LogCommand}: Get a log file of the bot. Handy for getting crash reports (Only Owner & Sudo).
-/{BotCommands.ShellCommand}: Run shell commands (Only Owner).
-/{BotCommands.AExecCommand}: Exec async functions (Only Owner).
-/{BotCommands.ExecCommand}: Exec sync functions (Only Owner).
-/{BotCommands.ClearLocalsCommand}: Clear {BotCommands.AExecCommand} or {BotCommands.ExecCommand} locals (Only Owner).
-/{BotCommands.RssCommand}: RSS Menu.
-"""
-
-
-@new_task
-async def bot_help(_, message):
-    await send_message(message, help_string)
-
-
-async def restart_notification():
-    if await aiopath.isfile(".restartmsg"):
-        with open(".restartmsg") as f:
-            chat_id, msg_id = map(int, f)
-    else:
-        chat_id, msg_id = 0, 0
-
-    async def send_incomplete_task_message(cid, msg):
-        try:
-            if msg.startswith("Restarted Successfully!"):
-                await bot.edit_message_text(
-                    chat_id=chat_id, message_id=msg_id, text=msg
-                )
-                await remove(".restartmsg")
-            else:
-                await bot.send_message(
-                    chat_id=cid,
-                    text=msg,
-                    disable_web_page_preview=True,
-                    disable_notification=True,
-                )
-        except Exception as e:
-            LOGGER.error(e)
-
-    if config_dict["INCOMPLETE_TASK_NOTIFIER"] and config_dict["DATABASE_URL"]:
-        if notifier_dict := await database.get_incomplete_tasks():
-            for cid, data in notifier_dict.items():
-                msg = "Restarted Successfully!" if cid == chat_id else "Bot Restarted!"
-                for tag, links in data.items():
-                    msg += f"\n\n{tag}: "
-                    for index, link in enumerate(links, start=1):
-                        msg += f" <a href='{link}'>{index}</a> |"
-                        if len(msg.encode()) > 4000:
-                            await send_incomplete_task_message(cid, msg)
-                            msg = ""
-                if msg:
-                    await send_incomplete_task_message(cid, msg)
-
-    if await aiopath.isfile(".restartmsg"):
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id, message_id=msg_id, text="Restarted Successfully!"
-            )
-        except:
-            pass
-        await remove(".restartmsg")
-
-
+# Bot main function
 async def main():
     if config_dict["DATABASE_URL"]:
         await database.db_load()
@@ -314,9 +161,13 @@ async def main():
             & CustomFilters.authorized,
         )
     )
+
     LOGGER.info("Bot Started!")
     signal(SIGINT, exit_clean_up)
 
-
-bot.loop.run_until_complete(main())
-bot.loop.run_forever()
+# Flask and bot loop execution
+if __name__ == "__main__":
+    from threading import Thread
+    Thread(target=run_flask).start()
+    bot.loop.run_until_complete(main())
+    bot.loop.run_forever()
